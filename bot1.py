@@ -1,14 +1,9 @@
 import logging
-import os 
+import os
 import sqlite3
 from datetime import datetime, timedelta
 import pandas as pd
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    ReplyKeyboardRemove
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -22,6 +17,7 @@ from pathlib import Path
 import re
 import time
 import uuid
+import os
 
 # Настройка логирования
 logging.basicConfig(
@@ -40,7 +36,7 @@ logger = logging.getLogger(__name__)
     SHOW_HISTORY, SHOW_CONFIG, CONFIRM_DELETE, INPUT_CONFIG_NAME
 ) = range(20)
 
-# Токен бота (лучше вынести в переменные окружения)
+# Токен бота из переменных окружения
 TOKEN = os.getenv("BOT_TOKEN")
 
 # Словарь для маппинга выбора
@@ -1722,14 +1718,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 def main() -> None:
     """Запуск бота"""
-    # Создаем Application с обработкой ошибок
-    application = (
-        Application.builder()
-        .token(TOKEN)
-        .post_init(post_init)
-        .post_shutdown(post_shutdown)
-        .build()
-    )
+    # Создаем Application
+    application = Application.builder().token(TOKEN).build()
     
     # Создаем ConversationHandler
     conv_handler = ConversationHandler(
@@ -1766,20 +1756,8 @@ def main() -> None:
     # Добавляем обработчики
     application.add_handler(conv_handler)
     
-    # Запускаем бота с обработкой ошибок
-    try:
-        application.run_polling()
-    except Exception as e:
-        logger.error(f"Ошибка при запуске бота: {e}")
-        raise
-
-async def post_init(application: Application) -> None:
-    """Действия после инициализации бота"""
-    logger.info("Бот успешно инициализирован")
-
-async def post_shutdown(application: Application) -> None:
-    """Действия после остановки бота"""
-    logger.info("Бот остановлен")
+    # Запускаем бота
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
