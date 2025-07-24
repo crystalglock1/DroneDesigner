@@ -1,8 +1,3 @@
-import logging
-import os
-import sqlite3
-from datetime import datetime, timedelta
-import pandas as pd
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
@@ -13,10 +8,7 @@ from telegram.ext import (
     MessageHandler,
     filters
 )
-from pathlib import Path
-import re
-import time
-import uuid
+import logging
 import os
 
 # Настройка логирования
@@ -1717,52 +1709,60 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 def main() -> None:
+    """Запуск бота"""
     logger.info("Запуск бота...")
     logger.info(f"Токен: {'Загружен' if TOKEN else 'Не найден'}")
+    
+    if not TOKEN:
+        logger.error("Токен бота не найден в переменных окружения")
+        raise ValueError("BOT_TOKEN не установлен")
+    
     try:
+        # Создаем Application
         application = Application.builder().token(TOKEN).build()
         logger.info("Application успешно создан")
+        
+        # Создаем ConversationHandler
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', start)],
+            states={
+                WELCOME_STATE: [CallbackQueryHandler(handle_welcome)],
+                CHOOSE_TYPE: [CallbackQueryHandler(choose_type)],
+                INPUT_FLIGHT_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_flight_time)],
+                INPUT_SPEED: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_speed)],
+                INPUT_PAYLOAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_payload)],
+                INPUT_AERO_QUALITY: [CallbackQueryHandler(input_aero_quality)],
+                INPUT_THRUST_RESERVE: [CallbackQueryHandler(input_thrust_reserve)],
+                INPUT_MANEUVER_TIME: [CallbackQueryHandler(input_maneuver_time)],
+                INPUT_PLANE_MATERIAL: [CallbackQueryHandler(input_plane_material)],
+                INPUT_PROPELLER_TYPE: [CallbackQueryHandler(input_propeller_type)],
+                INPUT_TAKEOFF_TYPE: [CallbackQueryHandler(input_takeoff_type)],
+                CALCULATE: [CallbackQueryHandler(handle_changes)],
+                CHANGE_FLIGHT_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, change_flight_time)],
+                CHANGE_SPEED: [MessageHandler(filters.TEXT & ~filters.COMMAND, change_speed)],
+                CHANGE_AERO_QUALITY: [CallbackQueryHandler(change_aero_quality)],
+                CHANGE_MANEUVER_TIME: [CallbackQueryHandler(change_maneuver_time)],
+                SHOW_HISTORY: [CallbackQueryHandler(show_history)],
+                SHOW_CONFIG: [CallbackQueryHandler(show_config)],
+                CONFIRM_DELETE: [CallbackQueryHandler(confirm_delete)],
+                INPUT_CONFIG_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_config_name)]
+            },
+            fallbacks=[
+                CommandHandler('cancel', cancel),
+                CommandHandler('start', start)
+            ],
+            per_message=False
+        )
+        
+        # Добавляем обработчик
+        application.add_handler(conv_handler)
+        
+        # Запускаем polling
+        logger.info("Запуск polling...")
+        application.run_polling(allowed_updates=["message", "callback_query"])
     except Exception as e:
-        logger.error(f"Ошибка при создании Application: {e}")
+        logger.error(f"Ошибка при запуске бота: {e}")
         raise
-    
-    # Создаем ConversationHandler
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
-        states={
-            WELCOME_STATE: [CallbackQueryHandler(handle_welcome)],
-            CHOOSE_TYPE: [CallbackQueryHandler(choose_type)],
-            INPUT_FLIGHT_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_flight_time)],
-            INPUT_SPEED: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_speed)],
-            INPUT_PAYLOAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_payload)],
-            INPUT_AERO_QUALITY: [CallbackQueryHandler(input_aero_quality)],
-            INPUT_THRUST_RESERVE: [CallbackQueryHandler(input_thrust_reserve)],
-            INPUT_MANEUVER_TIME: [CallbackQueryHandler(input_maneuver_time)],
-            INPUT_PLANE_MATERIAL: [CallbackQueryHandler(input_plane_material)],
-            INPUT_PROPELLER_TYPE: [CallbackQueryHandler(input_propeller_type)],
-            INPUT_TAKEOFF_TYPE: [CallbackQueryHandler(input_takeoff_type)],
-            CALCULATE: [CallbackQueryHandler(handle_changes)],
-            CHANGE_FLIGHT_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, change_flight_time)],
-            CHANGE_SPEED: [MessageHandler(filters.TEXT & ~filters.COMMAND, change_speed)],
-            CHANGE_AERO_QUALITY: [CallbackQueryHandler(change_aero_quality)],
-            CHANGE_MANEUVER_TIME: [CallbackQueryHandler(change_maneuver_time)],
-            SHOW_HISTORY: [CallbackQueryHandler(show_history)],
-            SHOW_CONFIG: [CallbackQueryHandler(show_config)],
-            CONFIRM_DELETE: [CallbackQueryHandler(confirm_delete)],
-            INPUT_CONFIG_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_config_name)]
-        },
-        fallbacks=[
-            CommandHandler('cancel', cancel),
-            CommandHandler('start', start)
-        ],
-        per_message=False
-    )
-    
-    # Добавляем обработчики
-    application.add_handler(conv_handler)
-    
-    # Запускаем бота
-    application.run_polling()
 
 if __name__ == '__main__':
     main()
