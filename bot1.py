@@ -1,7 +1,22 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
-from from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ConversationHandler, ContextTypes, MessageHandler, filters
 import logging
 import os
+import sqlite3  # Добавляем импорт sqlite3
+from datetime import datetime, timedelta
+import pandas as pd
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ConversationHandler,
+    ContextTypes,
+    MessageHandler,
+    filters
+)
+from pathlib import Path
+import re
+import time
+import uuid
 
 # Настройка логирования
 logging.basicConfig(
