@@ -1,4 +1,5 @@
 import logging
+import os 
 import sqlite3
 from datetime import datetime, timedelta
 import pandas as pd
@@ -35,8 +36,7 @@ logger = logging.getLogger(__name__)
 ) = range(20)
 
 # Токен бота
-TOKEN = "7307737118:AAH963acFly_MjqnXkE2a8OhrfZjlYm1o50"
-
+TOKEN = os.getenv("BOT_TOKEN")
 # Словарь для маппинга выбора
 SELECTION_MAPS = {
     'aero_quality': {"6": 6, "8": 8, "12": 12, "14": 14},
@@ -216,7 +216,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             logger.info(f"Пользователь {user_id} отправил /start слишком быстро, игнорируем")
             return WELCOME_STATE
     
-    context.user_data['last_start_time'] = datetime.now()  # Исправлено здесь
+    context.user_data['last_start_time'] = datetime.now()
     context.user_data['message_ids'] = []
     
     welcome_text = """
