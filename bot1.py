@@ -3,7 +3,12 @@ import os
 import sqlite3
 from datetime import datetime, timedelta
 import pandas as pd
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardRemove
+)
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -35,8 +40,9 @@ logger = logging.getLogger(__name__)
     SHOW_HISTORY, SHOW_CONFIG, CONFIRM_DELETE, INPUT_CONFIG_NAME
 ) = range(20)
 
-# Токен бота
+# Токен бота (лучше вынести в переменные окружения)
 TOKEN = os.getenv("BOT_TOKEN")
+
 # Словарь для маппинга выбора
 SELECTION_MAPS = {
     'aero_quality': {"6": 6, "8": 8, "12": 12, "14": 14},
@@ -49,73 +55,71 @@ SELECTION_MAPS = {
 # Инициализация базы данных SQLite
 def init_db():
     """Инициализация базы данных для хранения конфигураций"""
-    conn = sqlite3.connect('configurations.db')
-    cursor = conn.cursor()
-    cursor.execute("PRAGMA table_info(configurations)")
-    columns = [info[1] for info in cursor.fetchall()]
-    expected_columns = [
-        'id', 'user_id', 'config_name', 'unique_key', 'flight_time', 'distance', 'speed', 'payload',
-        'aero_quality', 'thrust_reserve', 'maneuver_time', 'plane_mass', 'propeller_eff',
-        'takeoff_type', 'battery_capacity', 'takeoff_mass', 'thrust_cruise', 'thrust_max',
-        'power_cruise', 'power_max', 'battery_mass', 'battery_voltage', 'battery_capacity_ah',
-        'battery_capacity_recommended', 'battery_type', 'battery_info', 'rotor_info', 'created_at'
-    ]
-    if not all(col in columns for col in expected_columns):
-        cursor.execute("DROP TABLE IF EXISTS configurations")
-        cursor.execute('''
-            CREATE TABLE configurations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                config_name TEXT,
-                unique_key TEXT UNIQUE,
-                flight_time REAL,
-                distance REAL,
-                speed REAL,
-                payload REAL,
-                aero_quality INTEGER,
-                thrust_reserve REAL,
-                maneuver_time REAL,
-                plane_mass REAL,
-                propeller_eff REAL,
-                takeoff_type REAL,
-                battery_capacity REAL,
-                takeoff_mass REAL,
-                thrust_cruise REAL,
-                thrust_max REAL,
-                power_cruise REAL,
-                power_max REAL,
-                battery_mass REAL,
-                battery_voltage REAL,
-                battery_capacity_ah REAL,
-                battery_capacity_recommended REAL,
-                battery_type TEXT,
-                battery_info TEXT,
-                rotor_info TEXT,
-                created_at TEXT,
-                UNIQUE(user_id, config_name)
-            )
-        ''')
-    conn.commit()
-    conn.close()
+    with sqlite3.connect('configurations.db') as conn:
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(configurations)")
+        columns = [info[1] for info in cursor.fetchall()]
+        expected_columns = [
+            'id', 'user_id', 'config_name', 'unique_key', 'flight_time', 'distance', 'speed', 'payload',
+            'aero_quality', 'thrust_reserve', 'maneuver_time', 'plane_mass', 'propeller_eff',
+            'takeoff_type', 'battery_capacity', 'takeoff_mass', 'thrust_cruise', 'thrust_max',
+            'power_cruise', 'power_max', 'battery_mass', 'battery_voltage', 'battery_capacity_ah',
+            'battery_capacity_recommended', 'battery_type', 'battery_info', 'rotor_info', 'created_at'
+        ]
+        if not all(col in columns for col in expected_columns):
+            cursor.execute("DROP TABLE IF EXISTS configurations")
+            cursor.execute('''
+                CREATE TABLE configurations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    config_name TEXT,
+                    unique_key TEXT UNIQUE,
+                    flight_time REAL,
+                    distance REAL,
+                    speed REAL,
+                    payload REAL,
+                    aero_quality INTEGER,
+                    thrust_reserve REAL,
+                    maneuver_time REAL,
+                    plane_mass REAL,
+                    propeller_eff REAL,
+                    takeoff_type REAL,
+                    battery_capacity REAL,
+                    takeoff_mass REAL,
+                    thrust_cruise REAL,
+                    thrust_max REAL,
+                    power_cruise REAL,
+                    power_max REAL,
+                    battery_mass REAL,
+                    battery_voltage REAL,
+                    battery_capacity_ah REAL,
+                    battery_capacity_recommended REAL,
+                    battery_type TEXT,
+                    battery_info TEXT,
+                    rotor_info TEXT,
+                    created_at TEXT,
+                    UNIQUE(user_id, config_name)
+                )
+            ''')
+            conn.commit()
 
 # Очистка устаревших конфигураций
 def cleanup_old_configs(user_id, max_age_days=30, max_configs=50):
     """Удаление конфигураций старше max_age_days или сверх max_configs"""
-    conn = sqlite3.connect('configurations.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        DELETE FROM configurations 
-        WHERE user_id = ? AND created_at < datetime('now', ?)
-    ''', (user_id, f'-{max_age_days} days'))
-    cursor.execute('''
-        DELETE FROM configurations 
-        WHERE user_id = ? AND id NOT IN (
-            SELECT id FROM configurations WHERE user_id = ? 
-            ORDER BY created_at DESC LIMIT ?
-        )
-    ''', (user_id, user_id, max_configs))
-    conn.commit()
-    conn.close()
+    with sqlite3.connect('configurations.db') as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            DELETE FROM configurations 
+            WHERE user_id = ? AND created_at < datetime('now', ?)
+        ''', (user_id, f'-{max_age_days} days'))
+        cursor.execute('''
+            DELETE FROM configurations 
+            WHERE user_id = ? AND id NOT IN (
+                SELECT id FROM configurations WHERE user_id = ? 
+                ORDER BY created_at DESC LIMIT ?
+            )
+        ''', (user_id, user_id, max_configs))
+        conn.commit()
 
 # Инициализация базы данных
 init_db()
@@ -150,7 +154,7 @@ async def delete_messages(context: ContextTypes.DEFAULT_TYPE, chat_id: int, keep
                     logger.debug(f"Сообщение {msg_id} удалено из message_ids, так как оно не найдено или слишком старое")
     
     logger.info(f"Удалено {deleted_count} сообщений, не удалось удалить {failed_count} сообщений")
-    
+
 async def send_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str,
                       reply_markup=None, parse_mode=None):
     """Универсальная функция отправки сообщений с регистрацией message_id"""
@@ -204,7 +208,7 @@ async def send_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text:
     except Exception as e:
         logger.error(f"Ошибка при отправке сообщения: {e}")
         raise
-    
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Обработка команды /start"""
     chat_id = update.effective_chat.id
@@ -1713,13 +1717,21 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         "Диалог прерван. Для нового расчета введите /start",
         reply_markup=ReplyKeyboardRemove()
     )
-    logger.info(f"User {update.effective_user.id} cancelled the conversation")
+    logger.info(f"Пользователь {update.effective_user.id} отменил диалог")
     return ConversationHandler.END
 
 def main() -> None:
     """Запуск бота"""
-    application = Application.builder().token(TOKEN).build()
+    # Создаем Application с обработкой ошибок
+    application = (
+        Application.builder()
+        .token(TOKEN)
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
+        .build()
+    )
     
+    # Создаем ConversationHandler
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
@@ -1751,8 +1763,23 @@ def main() -> None:
         per_message=False
     )
     
+    # Добавляем обработчики
     application.add_handler(conv_handler)
-    application.run_polling()
+    
+    # Запускаем бота с обработкой ошибок
+    try:
+        application.run_polling()
+    except Exception as e:
+        logger.error(f"Ошибка при запуске бота: {e}")
+        raise
+
+async def post_init(application: Application) -> None:
+    """Действия после инициализации бота"""
+    logger.info("Бот успешно инициализирован")
+
+async def post_shutdown(application: Application) -> None:
+    """Действия после остановки бота"""
+    logger.info("Бот остановлен")
 
 if __name__ == '__main__':
     main()
