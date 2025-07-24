@@ -1717,9 +1717,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 def main() -> None:
-    """Запуск бота"""
-    # Создаем Application
-    application = Application.builder().token(TOKEN).build()
+    logger.info("Запуск бота...")
+    logger.info(f"Токен: {'Загружен' if TOKEN else 'Не найден'}")
+    try:
+        application = Application.builder().token(TOKEN).build()
+        logger.info("Application успешно создан")
+    except Exception as e:
+        logger.error(f"Ошибка при создании Application: {e}")
+        raise
     
     # Создаем ConversationHandler
     conv_handler = ConversationHandler(
