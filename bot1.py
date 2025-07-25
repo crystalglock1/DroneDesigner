@@ -1327,84 +1327,140 @@ async def calculate_results(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return ConversationHandler.END
         
 async def handle_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Обработка изменений параметров"""
+    """Обработка изменений параметров и расчета"""
     query = update.callback_query
     chat_id = query.message.chat_id
     user_id = query.from_user.id
-    
-    if 'message_ids' not in context.user_data:
-        context.user_data['message_ids'] = []
-    
+
     if query.message.message_id and query.message.message_id not in context.user_data['message_ids']:
         context.user_data['message_ids'].append(query.message.message_id)
-        logger.debug(f"Добавлен message_id {query.message.message_id} для обработки изменений параметров")
-    
-    if query.data == "history":
-        conn = sqlite3.connect('configurations.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, config_name, created_at FROM configurations WHERE user_id = ?', (user_id,))
-        configs = cursor.fetchall()
-        conn.close()
-        
-        keyboard = [
-            [InlineKeyboardButton(f"{name} ({created_at})", callback_data=f"config_{id}")]
-            for id, name, created_at in configs
-        ]
-        keyboard.append([InlineKeyboardButton("⬅ Назад к расчету", callback_data="back_to_current")])
-        keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")])
-        
-        await delete_messages(context, chat_id, keep_ids=[context.user_data.get('welcome_message_id')])
+        logger.debug(f"Добавлен message_id {query.message.message_id} для обработки изменений")
+
+    await delete_messages(context, chat_id, keep_ids=[context.user_data.get('welcome_message_id')])
+
+    if query.data == "back_to_welcome":
+        welcome_text = """
+🚀 *DroneDesigner* — Telegram-бот для расчёта параметров БПЛА
+
+• Масса конструкции
+• Требуемая мощность
+• Параметры батареи
+• И другие ключевые характеристики
+
+Для инженеров и энтузиастов БПЛА!
+        """
         await send_message(
             update, context,
-            "📜 Ваши сохраненные конфигурации:",
+            welcome_text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📖 История", callback_data="history")],
+                [InlineKeyboardButton("🛠 Создать конфигурацию", callback_data="new_config")]
+            ]),
+            parse_mode="Markdown"
+        )
+        return WELCOME_STATE
+
+    elif query.data == "restart":
+        context.user_data.clear()
+        context.user_data['message_ids'] = [context.user_data.get('welcome_message_id')]
+        keyboard = [
+            [InlineKeyboardButton("Барражирующий БВС", callback_data="loitering")],
+            [InlineKeyboardButton("БВС дальнего действия", callback_data="long_range")]
+        ]
+        await send_message(
+            update, context,
+            "Выберите тип БВС:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-        return SHOW_HISTORY
-    
-    elif query.data == "back_to_current":
-        # Восстанавливаем текущую конфигурацию из user_data
-        data = context.user_data.get('current_config', {})
-        if not data:
-            return await handle_welcome(update, context)
-            
-        result_text = f"""📊 Результаты расчета
+        return CHOOSE_TYPE
 
-🔹 Взлетная масса: {data['takeoff_mass']:.2f} кг
-🔹 Тяга: {data['thrust_cruise']:.2f} кгс (крейсер), {data['thrust_max']:.2f} кгс (макс)
-🔹 Мощность: {data['power_cruise']/1000:.2f} кВт (крейсер), {data['power_max']/1000:.2f} кВт (макс)
+    elif query.data == "save_config":
+        await send_message(
+            update, context,
+            "Введите название конфигурации:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return INPUT_CONFIG_NAME
 
-🔋 Аккумулятор {data['battery_type']}:
-- Масса: {data['battery_mass']:.2f} кг
-- Напряжение: {data['battery_voltage']} В
-- Емкость: {data['battery_capacity_ah']:.2f} А·ч (рекомендуется {data['battery_capacity_recommended']:.2f} А·ч)
+    # Здесь должен быть код для расчёта параметров (предположительно, уже есть в вашей функции)
+    # Пример: расчёт параметров БПЛА
+    data = context.user_data
+    flight_time = data.get('flight_time', 0)
+    speed = data.get('speed', 0)
+    payload = data.get('payload', 0)
+    aero_quality = data.get('aero_quality', 8)
+    thrust_reserve = data.get('thrust_reserve', 2.0)
+    maneuver_time = data.get('maneuver_time', 0)
+    plane_mass = data.get('plane_mass', 0)
+    propeller_eff = data.get('propeller_eff', 0.8)
+    takeoff_type = data.get('takeoff_type', 0.4)
+
+    # Пример расчётов (замените на ваши)
+    takeoff_mass = plane_mass + payload
+    thrust_cruise = takeoff_mass / aero_quality
+    thrust_max = thrust_cruise * thrust_reserve
+    power_cruise = thrust_cruise * speed * 1000 / propeller_eff
+    power_max = thrust_max * speed * 1000 / propeller_eff
+    battery_capacity = power_max * flight_time / 3600
+    battery_mass = battery_capacity / 150
+    battery_voltage = 22.2
+    battery_capacity_ah = battery_capacity / battery_voltage
+    battery_capacity_recommended = battery_capacity_ah * 1.2
+    battery_type = "LiPo"
+    battery_info = f"LiPo батарея, {battery_voltage} В, {battery_capacity_ah:.2f} А·ч"
+    rotor_info = "Стандартный электромотор"
+
+    # Сохранение результатов в context.user_data
+    data.update({
+        'takeoff_mass': takeoff_mass,
+        'thrust_cruise': thrust_cruise,
+        'thrust_max': thrust_max,
+        'power_cruise': power_cruise,
+        'power_max': power_max,
+        'battery_mass': battery_mass,
+        'battery_voltage': battery_voltage,
+        'battery_capacity_ah': battery_capacity_ah,
+        'battery_capacity_recommended': battery_capacity_recommended,
+        'battery_type': battery_type,
+        'battery_info': battery_info,
+        'rotor_info': rotor_info
+    })
+
+    result_text = f"""
+📊 Результаты расчета:
+
+🔹 Взлетная масса: {takeoff_mass:.2f} кг
+🔹 Тяга: {thrust_cruise:.2f} кгс (крейсер), {thrust_max:.2f} кгс (макс)
+🔹 Мощность: {power_cruise/1000:.2f} кВт (крейсер), {power_max/1000:.2f} кВт (макс)
+
+🔋 Аккумулятор {battery_type}:
+- Масса: {battery_mass:.2f} кг
+- Напряжение: {battery_voltage} В
+- Емкость: {battery_capacity_ah:.2f} А·ч (рекомендуется {battery_capacity_recommended:.2f} А·ч)
 
 ✈️ Параметры полета:
 - Дальность: {data['distance']:.2f} км
-- Время: {data['flight_time']:.2f} ч
-- Скорость: {data['speed']} км/ч
-- Маневры: {data['maneuver_time']}% времени
+- Время: {flight_time:.2f} ч
+- Скорость: {speed} км/ч
+- Маневры: {maneuver_time}% времени
 
-🦾 Предложения по комплектации:
-- АКБ:
-{data['battery_info']}
+🦾 Комплектация:
+- АКБ: {battery_info}
+- Электромотор: {rotor_info}
+    """
 
-- Электромотор:
-{data['rotor_info']}"""
-        
-        keyboard = [
-            [InlineKeyboardButton("📖 История", callback_data="history")],
-            [InlineKeyboardButton("💾 Сохранить конфигурацию", callback_data="save_config")],
-            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")],
-            [InlineKeyboardButton("🔄 Изменить параметры", callback_data="change_params")]
-        ]
-        
-        await delete_messages(context, chat_id, keep_ids=[context.user_data.get('welcome_message_id')])
-        await send_message(
-            update, context,
-            result_text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return CALCULATE
+    keyboard = [
+        [InlineKeyboardButton("⬅ Назад к списку", callback_data="history")],
+        [InlineKeyboardButton("🗑 Сохранить конфигурацию", callback_data="save_config")],
+        [InlineKeyboardButton("🔄 Новый расчет", callback_data="restart")]
+    ]
+    await send_message(
+        update, context,
+        result_text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return CALCULATE
 
         keyboard = [
             [InlineKeyboardButton(f"{name} ({created_at})", callback_data=f"config_{id}")]
