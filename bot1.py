@@ -228,20 +228,6 @@ async def handle_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return WELCOME_STATE
 
-    elif query.data == "new_config":
-        keyboard = [
-            [InlineKeyboardButton("Барражирующий БВС", callback_data="loitering")],
-            [InlineKeyboardButton("БВС дальнего действия", callback_data="long_range")]
-        ]
-        sent_msg = await context.bot.send_message(  # Отправляем новое сообщение
-            chat_id=chat_id,
-            text="Выберите тип БВС:",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
-        context.user_data['message_ids'].append(sent_msg.message_id)
-        logger.info(f"Пользователь {user_id} выбрал новую конфигурацию, отправлено сообщение {sent_msg.message_id}")
-        return CHOOSE_TYPE
-        
     elif query.data == "history":
         configs = load_configs()
         user_configs = configs.get(str(user_id), {})
@@ -254,15 +240,29 @@ async def handle_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")]
                 ])
             )
-        return WELCOME_STATE
+            return WELCOME_STATE
 
-    keyboard = [
-        [InlineKeyboardButton(f"{name} ({data['created_at']})", callback_data=f"config_{name}")]
-        for name, data in user_configs.items()
-    ]
-    keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")])
-    await send_message(update, context, "📜 Выберите конфигурацию из списка:", reply_markup=InlineKeyboardMarkup(keyboard))
-    return SHOW_HISTORY
+        keyboard = [
+            [InlineKeyboardButton(f"{name} ({data['created_at']})", callback_data=f"config_{name}")]
+            for name, data in user_configs.items()
+        ]
+        keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")])
+        await send_message(update, context, "📜 Выберите конфигурацию из списка:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return SHOW_HISTORY
+
+    elif query.data == "new_config":
+        keyboard = [
+            [InlineKeyboardButton("Барражирующий БВС", callback_data="loitering")],
+            [InlineKeyboardButton("БВС дальнего действия", callback_data="long_range")]
+        ]
+        sent_msg = await context.bot.send_message(
+            chat_id=chat_id,
+            text="Выберите тип БВС:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+        context.user_data['message_ids'].append(sent_msg.message_id)
+        logger.info(f"Пользователь {user_id} выбрал новую конфигурацию, отправлено сообщение {sent_msg.message_id}")
+        return CHOOSE_TYPE
 
     elif query.data == "back_to_welcome":
         welcome_text = """
