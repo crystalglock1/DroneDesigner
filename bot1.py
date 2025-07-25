@@ -1531,19 +1531,19 @@ async def handle_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
     return CALCULATE
 
-        keyboard = [
-            [InlineKeyboardButton(f"{name} ({created_at})", callback_data=f"config_{id}")]
-            for id, name, created_at in configs
-        ]
-        keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")])
+    keyboard = [
+        [InlineKeyboardButton(f"{name} ({created_at})", callback_data=f"config_{id}")]
+        for id, name, created_at in configs
+    ]
+    keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")])
         
-        await delete_messages(context, chat_id, keep_ids=[context.user_data.get('welcome_message_id')])
-        await send_message(
-            update, context,
-            "📜 Ваши сохраненные конфигурации:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return SHOW_HISTORY
+    await delete_messages(context, chat_id, keep_ids=[context.user_data.get('welcome_message_id')])
+    await send_message(
+        update, context,
+        "📜 Ваши сохраненные конфигурации:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return SHOW_HISTORY
     
     if query.data == "restart":
         context.user_data['message_ids'] = [context.user_data.get('welcome_message_id')] if context.user_data.get('welcome_message_id') else []
