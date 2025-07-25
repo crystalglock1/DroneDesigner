@@ -1362,28 +1362,99 @@ async def handle_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     elif query.data == "restart":
         context.user_data.clear()
-        context.user_data['message_ids'] = [context.user_data.get('welcome_message_id')]
+        context.user_data['message_ids'] = [context.user_data.get('welcome_message_id')] if context.user_data.get('welcome_message_id') else []
         keyboard = [
             [InlineKeyboardButton("Барражирующий БВС", callback_data="loitering")],
             [InlineKeyboardButton("БВС дальнего действия", callback_data="long_range")]
         ]
-        await send_message(
+        prompt_msg = await send_message(
             update, context,
             "Выберите тип БВС:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+        logger.debug(f"Добавлен message_id {prompt_msg.message_id} для выбора типа БВС")
+        logger.info(f"Пользователь {user_id} перезапустил конфигурацию")
         return CHOOSE_TYPE
 
     elif query.data == "save_config":
-        await send_message(
+        prompt_msg = await send_message(
             update, context,
             "Введите название конфигурации:",
             reply_markup=ReplyKeyboardRemove()
         )
+        logger.debug(f"Добавлен message_id {prompt_msg.message_id} для запроса имени конфигурации")
         return INPUT_CONFIG_NAME
 
-    # Здесь должен быть код для расчёта параметров (предположительно, уже есть в вашей функции)
-    # Пример: расчёт параметров БПЛА
+    elif query.data == "change_flight_time":
+        prompt_msg = await send_message(
+            update, context,
+            "Введите новое значение времени полета в часах:" if context.user_data.get('type') == "loitering" 
+            else "Введите новое значение дальности в км:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        logger.debug(f"Добавлен message_id {prompt_msg.message_id} для запроса нового времени/дальности")
+        return CHANGE_FLIGHT_TIME
+
+    elif query.data == "change_speed":
+        prompt_msg = await send_message(
+            update, context,
+            "Введите новое значение скорости в км/ч:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        logger.debug(f"Добавлен message_id {prompt_msg.message_id} для запроса новой скорости")
+        return CHANGE_SPEED
+
+    elif query.data == "change_aero_quality":
+        keyboard = [
+            [InlineKeyboardButton("6 (Плохое)", callback_data="6")],
+            [InlineKeyboardButton("8 (Среднее)", callback_data="8")],
+            [InlineKeyboardButton("12 (Хорошее)", callback_data="12")],
+            [InlineKeyboardButton("14 (Отличное)", callback_data="14")]
+        ]
+        prompt_msg = await send_message(
+            update, context,
+            "Выберите новое аэродинамическое качество:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        logger.debug(f"Добавлен message_id {prompt_msg.message_id} для запроса аэродинамического качества")
+        return CHANGE_AERO_QUALITY
+
+    elif query.data == "change_maneuver_time":
+        keyboard = [
+            [InlineKeyboardButton("10%", callback_data="10")],
+            [InlineKeyboardButton("15%", callback_data="15")],
+            [InlineKeyboardButton("30%", callback_data="30")]
+        ]
+        prompt_msg = await send_message(
+            update, context,
+            "Выберите новое время маневрирования:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        logger.debug(f"Добавлен message_id {prompt_msg.message_id} для запроса времени маневрирования")
+        return CHANGE_MANEUVER_TIME
+
+    elif query.data == "confirm_calc":
+        prompt_msg = await send_message(update, context, "⏳ Выполняю расчет...", reply_markup=ReplyKeyboardRemove())
+        logger.debug(f"Добавлен message_id {prompt_msg.message_id} для сообщения о начале расчета")
+        return await calculate_results(update, context)
+
+    elif query.data == "change_params":
+        keyboard = [
+            [InlineKeyboardButton("Время/дальность", callback_data="change_flight_time")],
+            [InlineKeyboardButton("Скорость", callback_data="change_speed")],
+            [InlineKeyboardButton("Аэродинамика", callback_data="change_aero_quality")],
+            [InlineKeyboardButton("Маневры", callback_data="change_maneuver_time")],
+            [InlineKeyboardButton("Начать заново", callback_data="restart")]
+        ]
+        prompt_msg = await send_message(
+            update, context,
+            "Выберите параметр для изменения:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        logger.debug(f"Добавлен message_id {prompt_msg.message_id} для выбора параметра для изменения")
+        return CALCULATE
+
+    # Расчёт параметров БПЛА
     data = context.user_data
     flight_time = data.get('flight_time', 0)
     speed = data.get('speed', 0)
@@ -1395,7 +1466,6 @@ async def handle_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     propeller_eff = data.get('propeller_eff', 0.8)
     takeoff_type = data.get('takeoff_type', 0.4)
 
-    # Пример расчётов (замените на ваши)
     takeoff_mass = plane_mass + payload
     thrust_cruise = takeoff_mass / aero_quality
     thrust_max = thrust_cruise * thrust_reserve
@@ -1410,7 +1480,6 @@ async def handle_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     battery_info = f"LiPo батарея, {battery_voltage} В, {battery_capacity_ah:.2f} А·ч"
     rotor_info = "Стандартный электромотор"
 
-    # Сохранение результатов в context.user_data
     data.update({
         'takeoff_mass': takeoff_mass,
         'thrust_cruise': thrust_cruise,
@@ -1439,7 +1508,7 @@ async def handle_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 - Емкость: {battery_capacity_ah:.2f} А·ч (рекомендуется {battery_capacity_recommended:.2f} А·ч)
 
 ✈️ Параметры полета:
-- Дальность: {data['distance']:.2f} км
+- Дальность: {data.get('distance', 0):.2f} км
 - Время: {flight_time:.2f} ч
 - Скорость: {speed} км/ч
 - Маневры: {maneuver_time}% времени
