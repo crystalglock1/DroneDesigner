@@ -242,18 +242,18 @@ async def handle_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.info(f"Пользователь {user_id} выбрал новую конфигурацию, отправлено сообщение {sent_msg.message_id}")
         return CHOOSE_TYPE
         
-elif query.data == "history":
-    configs = load_configs()
-    user_configs = configs.get(str(user_id), {})
-    if not user_configs:
-        await send_message(
-            update, context,
-            "⏳ У вас пока нет сохранённых конфигураций. Создайте свою первую конфигурацию для расчета параметров БПЛА!",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🛠 Создать конфигурацию", callback_data="new_config")],
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")]
-            ])
-        )
+    elif query.data == "history":
+        configs = load_configs()
+        user_configs = configs.get(str(user_id), {})
+        if not user_configs:
+            await send_message(
+                update, context,
+                "⏳ У вас пока нет сохранённых конфигураций. Создайте свою первую конфигурацию для расчета параметров БПЛА!",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🛠 Создать конфигурацию", callback_data="new_config")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")]
+                ])
+            )
         return WELCOME_STATE
 
     keyboard = [
