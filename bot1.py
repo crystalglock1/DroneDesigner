@@ -1,6 +1,8 @@
 import logging
+import json
+import subprocess
+from dotenv import load_dotenv
 import os
-import sqlite3  # Добавляем импорт sqlite3
 from datetime import datetime, timedelta
 import pandas as pd
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
@@ -37,6 +39,9 @@ logger = logging.getLogger(__name__)
 
 # Токен бота из переменных окружения
 TOKEN = os.getenv("BOT_TOKEN")
+load_dotenv()
+GIT_TOKEN = os.getenv("GIT_TOKEN")
+CONFIG_FILE = 'configurations.json'
 
 # Словарь для маппинга выбора
 SELECTION_MAPS = {
@@ -47,77 +52,36 @@ SELECTION_MAPS = {
     'takeoff_type': {"0.3": 0.3, "0.4": 0.4, "0.6": 0.6}
 }
 
-# Инициализация базы данных SQLite
-def init_db():
-    """Инициализация базы данных для хранения конфигураций"""
-    with sqlite3.connect('configurations.db') as conn:
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(configurations)")
-        columns = [info[1] for info in cursor.fetchall()]
-        expected_columns = [
-            'id', 'user_id', 'config_name', 'unique_key', 'flight_time', 'distance', 'speed', 'payload',
-            'aero_quality', 'thrust_reserve', 'maneuver_time', 'plane_mass', 'propeller_eff',
-            'takeoff_type', 'battery_capacity', 'takeoff_mass', 'thrust_cruise', 'thrust_max',
-            'power_cruise', 'power_max', 'battery_mass', 'battery_voltage', 'battery_capacity_ah',
-            'battery_capacity_recommended', 'battery_type', 'battery_info', 'rotor_info', 'created_at'
-        ]
-        if not all(col in columns for col in expected_columns):
-            cursor.execute("DROP TABLE IF EXISTS configurations")
-            cursor.execute('''
-                CREATE TABLE configurations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    config_name TEXT,
-                    unique_key TEXT UNIQUE,
-                    flight_time REAL,
-                    distance REAL,
-                    speed REAL,
-                    payload REAL,
-                    aero_quality INTEGER,
-                    thrust_reserve REAL,
-                    maneuver_time REAL,
-                    plane_mass REAL,
-                    propeller_eff REAL,
-                    takeoff_type REAL,
-                    battery_capacity REAL,
-                    takeoff_mass REAL,
-                    thrust_cruise REAL,
-                    thrust_max REAL,
-                    power_cruise REAL,
-                    power_max REAL,
-                    battery_mass REAL,
-                    battery_voltage REAL,
-                    battery_capacity_ah REAL,
-                    battery_capacity_recommended REAL,
-                    battery_type TEXT,
-                    battery_info TEXT,
-                    rotor_info TEXT,
-                    created_at TEXT,
-                    UNIQUE(user_id, config_name)
-                )
-            ''')
-            conn.commit()
+def load_configs():
+    """Загрузка конфигураций из JSON-файла"""
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        return {}
+    except json.JSONDecodeError:
+        logger.error("Ошибка чтения configurations.json, возвращается пустой словарь")
+        return {}
 
-# Очистка устаревших конфигураций
-def cleanup_old_configs(user_id, max_age_days=30, max_configs=50):
-    """Удаление конфигураций старше max_age_days или сверх max_configs"""
-    with sqlite3.connect('configurations.db') as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            DELETE FROM configurations 
-            WHERE user_id = ? AND created_at < datetime('now', ?)
-        ''', (user_id, f'-{max_age_days} days'))
-        cursor.execute('''
-            DELETE FROM configurations 
-            WHERE user_id = ? AND id NOT IN (
-                SELECT id FROM configurations WHERE user_id = ? 
-                ORDER BY created_at DESC LIMIT ?
-            )
-        ''', (user_id, user_id, max_configs))
-        conn.commit()
+def save_configs(configs):
+    """Сохранение конфигураций в JSON-файл"""
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(configs, f, indent=4)
+    except Exception as e:
+        logger.error(f"Ошибка записи в configurations.json: {e}")
 
-# Инициализация базы данных
-init_db()
+def update_repo():
+    """Обновление репозитория GitHub"""
+    try:
+        subprocess.run(['git', 'config', '--global', 'user.email', 'bot@example.com'], check=True)
+        subprocess.run(['git', 'config', '--global', 'user.name', 'Bot'], check=True)
+        subprocess.run(['git', 'add', CONFIG_FILE], check=True)
+        subprocess.run(['git', 'commit', '-m', 'Обновлены конфигурации'], check=True)
+        subprocess.run(['git', 'push', 'origin', 'main'], check=True)
+        logger.info("Конфигурации успешно отправлены в репозиторий")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Ошибка при пушe в репозиторий: {e}")
 
 async def delete_messages(context: ContextTypes.DEFAULT_TYPE, chat_id: int, keep_ids: list = None):
     """Удаление всех сообщений, кроме указанных в keep_ids"""
@@ -278,31 +242,28 @@ async def handle_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.info(f"Пользователь {user_id} выбрал новую конфигурацию, отправлено сообщение {sent_msg.message_id}")
         return CHOOSE_TYPE
         
-    elif query.data == "history":
-        conn = sqlite3.connect('configurations.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, config_name, created_at FROM configurations WHERE user_id = ?', (user_id,))
-        configs = cursor.fetchall()
-        conn.close()
-        if not configs:
-            await send_message(
-                update, context,
-                "⏳ У вас пока нет сохранённых конфигураций. Создайте свою первую конфигурацию для расчета параметров БПЛА!",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🛠 Создать конфигурацию", callback_data="new_config")],
-                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")]
-                ])
-            )
-            return WELCOME_STATE
+elif query.data == "history":
+    configs = load_configs()
+    user_configs = configs.get(str(user_id), {})
+    if not user_configs:
+        await send_message(
+            update, context,
+            "⏳ У вас пока нет сохранённых конфигураций. Создайте свою первую конфигурацию для расчета параметров БПЛА!",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🛠 Создать конфигурацию", callback_data="new_config")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")]
+            ])
+        )
+        return WELCOME_STATE
 
-        keyboard = [
-            [InlineKeyboardButton(f"{name} ({created_at})", callback_data=f"config_{id}")]
-            for id, name, created_at in configs
-        ]
-        keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")])
-        await send_message(update, context, "📜 Выберите конфигурацию из списка:", reply_markup=InlineKeyboardMarkup(keyboard))
-        return SHOW_HISTORY
-    
+    keyboard = [
+        [InlineKeyboardButton(f"{name} ({data['created_at']})", callback_data=f"config_{name}")]
+        for name, data in user_configs.items()
+    ]
+    keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")])
+    await send_message(update, context, "📜 Выберите конфигурацию из списка:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return SHOW_HISTORY
+
     elif query.data == "back_to_welcome":
         welcome_text = """
 🚀 *DroneDesigner* — Telegram-бот для расчёта параметров БПЛА
@@ -361,14 +322,10 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     elif query.data == "back_to_current":
         return await handle_changes(update, context)
 
-    if match := re.match(r"config_(\d+)", query.data):
-        config_id = int(match.group(1))
-        conn = sqlite3.connect('configurations.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM configurations WHERE id = ? AND user_id = ?', (config_id, user_id))
-        config = cursor.fetchone()
-        conn.close()
-
+    if match := re.match(r"config_(.+)", query.data):
+        config_name = match.group(1)
+        configs = load_configs()
+        config = configs.get(str(user_id), {}).get(config_name)
         if not config:
             await send_message(
                 update, context,
@@ -379,33 +336,33 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             )
             return SHOW_HISTORY
 
-        result_text = f"""📊 Конфигурация: {config[2]} ({config[27]})
+        result_text = f"""📊 Конфигурация: {config_name} ({config['created_at']})
 
-🔹 Взлетная масса: {config[15]:.2f} кг
-🔹 Тяга: {config[16]:.2f} кгс (крейсер), {config[17]:.2f} кгс (макс)
-🔹 Мощность: {config[18]/1000:.2f} кВт (крейсер), {config[19]/1000:.2f} кВт (макс)
+🔹 Взлетная масса: {config['takeoff_mass']:.2f} кг
+🔹 Тяга: {config['thrust_cruise']:.2f} кгс (крейсер), {config['thrust_max']:.2f} кгс (макс)
+🔹 Мощность: {config['power_cruise']/1000:.2f} кВт (крейсер), {config['power_max']/1000:.2f} кВт (макс)
 
-🔋 Аккумулятор {config[24]}:
-- Масса: {config[20]:.2f} кг
-- Напряжение: {config[21]} В
-- Емкость: {config[22]:.2f} А·ч (рекомендуется {config[23]:.2f} А·ч)
+🔋 Аккумулятор {config['battery_type']}:
+- Масса: {config['battery_mass']:.2f} кг
+- Напряжение: {config['battery_voltage']} В
+- Емкость: {config['battery_capacity_ah']:.2f} А·ч (рекомендуется {config['battery_capacity_recommended']} А·ч)
 
 ✈️ Параметры полета:
-- Дальность: {config[5]:.2f} км
-- Время: {config[4]:.2f} ч
-- Скорость: {config[6]} км/ч
-- Маневры: {config[10]}% времени
+- Дальность: {config['distance']:.2f} км
+- Время: {config['flight_time']:.2f} ч
+- Скорость: {config['speed']} км/ч
+- Маневры: {config['maneuver_time']}% времени
 
-🦾 Комплектация:
+🦠 Комплектация:
 - АКБ:
-{config[25]}
+{config['battery_info']}
 
 - Электромотор:
-{config[26]}"""
+{config['rotor_info']}"""
         
         keyboard = [
             [InlineKeyboardButton("⬅ Назад к списку", callback_data="history")],
-            [InlineKeyboardButton("🗑 Удалить", callback_data=f"delete_{config_id}")]
+            [InlineKeyboardButton("🗑 Удалить", callback_data=f"delete_{config_name}")]
         ]
         await send_message(
             update, context,
@@ -413,7 +370,7 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
-        logger.info(f"Пользователь {user_id} просмотрел конфигурацию {config_id}")
+        logger.info(f"Пользователь {user_id} просмотрел конфигурацию {config_name}")
         return SHOW_CONFIG
 
 async def show_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -429,13 +386,9 @@ async def show_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     await delete_messages(context, chat_id, keep_ids=[context.user_data.get('welcome_message_id')])
 
     if query.data == "history":
-        conn = sqlite3.connect('configurations.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, config_name, created_at FROM configurations WHERE user_id = ?', (user_id,))
-        configs = cursor.fetchall()
-        conn.close()
-
-        if not configs:
+        configs = load_configs()
+        user_configs = configs.get(str(user_id), {})
+        if not user_configs:
             await send_message(
                 update, context,
                 "⏳ У вас пока нет сохранённых конфигураций. Создайте свою первую конфигурацию для расчета параметров БПЛА!",
@@ -447,21 +400,21 @@ async def show_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
             return WELCOME_STATE
 
         keyboard = [
-            [InlineKeyboardButton(f"{name} ({created_at})", callback_data=f"config_{id}")]
-            for id, name, created_at in configs
+            [InlineKeyboardButton(f"{name} ({data['created_at']})", callback_data=f"config_{name}")]
+            for name, data in user_configs.items()
         ]
         keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")])
         await send_message(update, context, "📜 Выберите конфигурацию из списка:", reply_markup=InlineKeyboardMarkup(keyboard))
         return SHOW_HISTORY
 
-    if match := re.match(r"delete_(\d+)", query.data):
-        config_id = int(match.group(1))
+    if match := re.match(r"delete_(.+)", query.data):
+        config_name = match.group(1)
         await send_message(
             update, context,
             "Вы точно хотите удалить конфигурацию?",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🗑 Удалить", callback_data=f"confirm_delete_{config_id}")],
-                [InlineKeyboardButton("🚫 Отмена", callback_data=f"config_{config_id}")]
+                [InlineKeyboardButton("🗑 Удалить", callback_data=f"confirm_delete_{config_name}")],
+                [InlineKeyboardButton("🚫 Отмена", callback_data=f"config_{config_name}")]
             ])
         )
         return CONFIRM_DELETE
@@ -478,22 +431,20 @@ async def confirm_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     await delete_messages(context, chat_id, keep_ids=[context.user_data.get('welcome_message_id')])
 
-    if match := re.match(r"confirm_delete_(\d+)", query.data):
-        config_id = int(match.group(1))
-        conn = sqlite3.connect('configurations.db')
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM configurations WHERE id = ? AND user_id = ?', (config_id, user_id))
-        conn.commit()
-        conn.close()
-        logger.info(f"Пользователь {user_id} удалил конфигурацию {config_id}")
+    if match := re.match(r"confirm_delete_(.+)", query.data):
+        config_name = match.group(1)
+        configs = load_configs()
+        if str(user_id) in configs and config_name in configs[str(user_id)]:
+            del configs[str(user_id)][config_name]
+            if not configs[str(user_id)]:
+                del configs[str(user_id)]
+            save_configs(configs)
+            if os.getenv('RENDER'):
+                update_repo()
+            logger.info(f"Пользователь {user_id} удалил конфигурацию {config_name}")
         
-        conn = sqlite3.connect('configurations.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, config_name, created_at FROM configurations WHERE user_id = ?', (user_id,))
-        configs = cursor.fetchall()
-        conn.close()
-
-        if not configs:
+        user_configs = configs.get(str(user_id), {})
+        if not user_configs:
             await send_message(
                 update, context,
                 "⏳ У вас пока нет сохранённых конфигураций. Создайте свою первую конфигурацию для расчета параметров БПЛА!",
@@ -505,21 +456,17 @@ async def confirm_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return WELCOME_STATE
 
         keyboard = [
-            [InlineKeyboardButton(f"{name} ({created_at})", callback_data=f"config_{id}")]
-            for id, name, created_at in configs
+            [InlineKeyboardButton(f"{name} ({data['created_at']})", callback_data=f"config_{name}")]
+            for name, data in user_configs.items()
         ]
         keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")])
         await send_message(update, context, "📜 Конфигурация удалена. Выберите другую конфигурацию:", reply_markup=InlineKeyboardMarkup(keyboard))
         return SHOW_HISTORY
 
-    if match := re.match(r"config_(\d+)", query.data):
-        config_id = int(match.group(1))
-        conn = sqlite3.connect('configurations.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM configurations WHERE id = ? AND user_id = ?', (config_id, user_id))
-        config = cursor.fetchone()
-        conn.close()
-
+    if match := re.match(r"config_(.+)", query.data):
+        config_name = match.group(1)
+        configs = load_configs()
+        config = configs.get(str(user_id), {}).get(config_name)
         if not config:
             await send_message(
                 update, context,
@@ -530,33 +477,33 @@ async def confirm_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             return SHOW_HISTORY
 
-        result_text = f"""📊 Конфигурация: {config[2]} ({config[27]})
+        result_text = f"""📊 Конфигурация: {config_name} ({config['created_at']})
 
-🔹 Взлетная масса: {config[15]:.2f} кг
-🔹 Тяга: {config[16]:.2f} кгс (крейсер), {config[17]:.2f} кгс (макс)
-🔹 Мощность: {config[18]/1000:.2f} кВт (крейсер), {config[19]/1000:.2f} кВт (макс)
+🔹 Взлетная масса: {config['takeoff_mass']:.2f} кг
+🔹 Тяга: {config['thrust_cruise']:.2f} кгс (крейсер), {config['thrust_max']:.2f} кгс (макс)
+🔹 Мощность: {config['power_cruise']/1000:.2f} кВт (крейсер), {config['power_max']/1000:.2f} кВт (макс)
 
-🔋 Аккумулятор {config[24]}:
-- Масса: {config[20]:.2f} кг
-- Напряжение: {config[21]} В
-- Емкость: {config[22]:.2f} А·ч (рекомендуется {config[23]:.2f} А·ч)
+🔋 Аккумулятор {config['battery_type']}:
+- Масса: {config['battery_mass']:.2f} кг
+- Напряжение: {config['battery_voltage']} В
+- Емкость: {config['battery_capacity_ah']:.2f} А·ч (рекомендуется {config['battery_capacity_recommended']} А·ч)
 
 ✈️ Параметры полета:
-- Дальность: {config[5]:.2f} км
-- Время: {config[4]:.2f} ч
-- Скорость: {config[6]} км/ч
-- Маневры: {config[10]}% времени
+- Дальность: {config['distance']:.2f} км
+- Время: {config['flight_time']:.2f} ч
+- Скорость: {config['speed']} км/ч
+- Маневры: {config['maneuver_time']}% времени
 
 🦾 Комплектация:
 - АКБ:
-{config[25]}
+{config['battery_info']}
 
 - Электромотор:
-{config[26]}"""
+{config['rotor_info']}"""
         
         keyboard = [
             [InlineKeyboardButton("⬅ Назад", callback_data="history")],
-            [InlineKeyboardButton("🗑 Удалить", callback_data=f"delete_{config_id}")]
+            [InlineKeyboardButton("🗑 Удалить", callback_data=f"delete_{config_name}")]
         ]
         await send_message(
             update, context,
@@ -564,7 +511,7 @@ async def confirm_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
-        logger.info(f"Пользователь {user_id} просмотрел конфигурацию {config_id}")
+        logger.info(f"Пользователь {user_id} просмотрел конфигурацию {config_name}")
         return SHOW_CONFIG
 
 async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1099,44 +1046,8 @@ async def input_config_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         logger.debug(f"Добавлен message_id {prompt_msg.message_id} для сообщения об ошибке ввода имени")
         return INPUT_CONFIG_NAME
 
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    unique_key = f"{user_id}:{config_name}:{timestamp}"
-
-    data = context.user_data
-    conn = sqlite3.connect('configurations.db')
-    cursor = conn.cursor()
-    try:
-        cursor.execute('''
-            INSERT INTO configurations (
-                user_id, config_name, unique_key, flight_time, distance, speed, payload,
-                aero_quality, thrust_reserve, maneuver_time, plane_mass, propeller_eff,
-                takeoff_type, battery_capacity, takeoff_mass, thrust_cruise, thrust_max,
-                power_cruise, power_max, battery_mass, battery_voltage, battery_capacity_ah,
-                battery_capacity_recommended, battery_type, battery_info, rotor_info, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            user_id, config_name, unique_key, data['flight_time'], data['distance'], data['speed'],
-            data['payload'], data['aero_quality'], data['thrust_reserve'], data['maneuver_time'],
-            data['plane_mass'], data['propeller_eff'], data['takeoff_type'], data['battery_capacity'],
-            data['takeoff_mass'], data['thrust_cruise'], data['thrust_max'], data['power_cruise'],
-            data['power_max'], data['battery_mass'], data['battery_voltage'], data['battery_capacity_ah'],
-            data['battery_capacity_recommended'], data['battery_type'], data['battery_info'],
-            data['rotor_info'], timestamp
-        ))
-        conn.commit()
-        await delete_messages(context, chat_id, keep_ids=[context.user_data.get('welcome_message_id')])
-        prompt_msg = await send_message(
-            update, context,
-            f"✅ Конфигурация '{config_name}' сохранена!",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📖 История", callback_data="history")],
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")],
-                [InlineKeyboardButton("🛠 Новый расчет", callback_data="restart")]
-            ])
-        )
-        logger.debug(f"Добавлен message_id {prompt_msg.message_id} для сообщения о сохранении конфигурации")
-        logger.info(f"Пользователь {user_id} сохранил конфигурацию: {config_name}")
-    except sqlite3.IntegrityError:
+    configs = load_configs()
+    if str(user_id) in configs and config_name in configs[str(user_id)]:
         prompt_msg = await send_message(
             update, context,
             "Ошибка! Конфигурация с таким названием уже существует. Введите другое название:",
@@ -1144,10 +1055,56 @@ async def input_config_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         logger.debug(f"Добавлен message_id {prompt_msg.message_id} для сообщения об ошибке имени")
         return INPUT_CONFIG_NAME
-    finally:
-        conn.close()
-    
-    cleanup_old_configs(user_id)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    data = context.user_data
+    config_data = {
+        'config_name': config_name,
+        'flight_time': data['flight_time'],
+        'distance': data['distance'],
+        'speed': data['speed'],
+        'payload': data['payload'],
+        'aero_quality': data['aero_quality'],
+        'thrust_reserve': data['thrust_reserve'],
+        'maneuver_time': data['maneuver_time'],
+        'plane_mass': data['plane_mass'],
+        'propeller_eff': data['propeller_eff'],
+        'takeoff_type': data['takeoff_type'],
+        'battery_capacity': data['battery_capacity'],
+        'takeoff_mass': data['takeoff_mass'],
+        'thrust_cruise': data['thrust_cruise'],
+        'thrust_max': data['thrust_max'],
+        'power_cruise': data['power_cruise'],
+        'power_max': data['power_max'],
+        'battery_mass': data['battery_mass'],
+        'battery_voltage': data['battery_voltage'],
+        'battery_capacity_ah': data['battery_capacity_ah'],
+        'battery_capacity_recommended': data['battery_capacity_recommended'],
+        'battery_type': data['battery_type'],
+        'battery_info': data['battery_info'],
+        'rotor_info': data['rotor_info'],
+        'created_at': timestamp
+    }
+
+    if str(user_id) not in configs:
+        configs[str(user_id)] = {}
+    configs[str(user_id)][config_name] = config_data
+    save_configs(configs)
+    if os.getenv('RENDER'):
+        update_repo()
+
+    await delete_messages(context, chat_id, keep_ids=[context.user_data.get('welcome_message_id')])
+    prompt_msg = await send_message(
+        update, context,
+        f"✅ Конфигурация '{config_name}' сохранена!",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📖 История", callback_data="history")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")],
+            [InlineKeyboardButton("🛠 Новый расчет", callback_data="restart")]
+        ])
+    )
+    logger.debug(f"Добавлен message_id {prompt_msg.message_id} для сообщения о сохранении конфигурации")
+    logger.info(f"Пользователь {user_id} сохранил конфигурацию: {config_name}")
     return CALCULATE
 
 async def calculate_results(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1723,6 +1680,9 @@ def main() -> None:
     if not TOKEN:
         logger.error("Токен бота не найден в переменных окружения")
         raise ValueError("BOT_TOKEN не установлен")
+    
+    if os.getenv('RENDER') and GIT_TOKEN:
+        subprocess.run(['git', 'remote', 'set-url', 'origin', f'https://{GIT_TOKEN}@github.com/crystalglock1/DroneDesigner.git'])
     
     try:
         # Создаем Application
