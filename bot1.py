@@ -319,8 +319,56 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             parse_mode="Markdown"
         )
         return WELCOME_STATE
+
     elif query.data == "back_to_current":
-        return await handle_changes(update, context)
+        data = context.user_data.get('current_config', {})
+        if not data:
+            await send_message(
+                update, context,
+                "⚠️ Текущая конфигурация не найдена. Начните новый расчёт.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🛠 Новый расчёт", callback_data="restart")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")]
+                ])
+            )
+            return CALCULATE
+
+        result_text = f"""
+📊 Результаты расчета:
+
+🔹 Взлетная масса: {data['takeoff_mass']:.2f} кг
+🔹 Тяга: {data['thrust_cruise']:.2f} кгс (крейсер), {data['thrust_max']:.2f} кгс (макс)
+🔹 Мощность: {data['power_cruise']/1000:.2f} кВт (крейсер), {data['power_max']/1000:.2f} кВт (макс)
+
+🔋 Аккумулятор {data['battery_type']}:
+- Масса: {data['battery_mass']:.2f} кг
+- Напряжение: {data['battery_voltage']} В
+- Емкость: {data['battery_capacity_ah']:.2f} А·ч (рекомендуется {data['battery_capacity_recommended']:.2f} А·ч)
+
+✈️ Параметры полета:
+- Дальность: {data.get('distance', 0):.2f} км
+- Время: {data.get('flight_time', 0):.2f} ч
+- Скорость: {data.get('speed', 0)} км/ч
+- Маневры: {data.get('maneuver_time', 0)}% времени
+
+🦾 Комплектация:
+- АКБ: {data['battery_info']}
+- Электромотор: {data['rotor_info']}
+        """
+        keyboard = [
+            [InlineKeyboardButton("📖 История", callback_data="history")],
+            [InlineKeyboardButton("💾 Сохранить конфигурацию", callback_data="save_config")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")],
+            [InlineKeyboardButton("🔄 Изменить параметры", callback_data="change_params")]
+        ]
+        await send_message(
+            update, context,
+            result_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+        logger.info(f"Пользователь {user_id} вернулся к текущей конфигурации")
+        return CALCULATE
 
     if match := re.match(r"config_(.+)", query.data):
         config_name = match.group(1)
@@ -1369,6 +1417,7 @@ async def handle_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "⏳ У вас пока нет сохранённых конфигураций. Создайте свою первую конфигурацию для расчета параметров БПЛА!",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🛠 Создать конфигурацию", callback_data="new_config")],
+                    [InlineKeyboardButton("⬅ Вернуться к расчётам", callback_data="back_to_current")],
                     [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")]
                 ])
             )
@@ -1378,6 +1427,7 @@ async def handle_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [InlineKeyboardButton(f"{name} ({data['created_at']})", callback_data=f"config_{name}")]
             for name, data in user_configs.items()
         ]
+        keyboard.append([InlineKeyboardButton("⬅ Вернуться к расчётам", callback_data="back_to_current")])
         keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")])
         await send_message(update, context, "📜 Выберите конфигурацию из списка:", reply_markup=InlineKeyboardMarkup(keyboard))
         logger.info(f"Пользователь {user_id} запросил историю конфигураций")
@@ -1478,67 +1528,39 @@ async def handle_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return CALCULATE
 
     # Если ни одно из условий не выполнено, возвращаем результаты расчета
-    data = context.user_data
-    flight_time = data.get('flight_time', 0)
-    speed = data.get('speed', 0)
-    payload = data.get('payload', 0)
-    aero_quality = data.get('aero_quality', 8)
-    thrust_reserve = data.get('thrust_reserve', 2.0)
-    maneuver_time = data.get('maneuver_time', 0)
-    plane_mass = data.get('plane_mass', 0)
-    propeller_eff = data.get('propeller_eff', 0.8)
-    takeoff_type = data.get('takeoff_type', 0.4)
-
-    takeoff_mass = plane_mass + payload
-    thrust_cruise = takeoff_mass / aero_quality
-    thrust_max = thrust_cruise * thrust_reserve
-    power_cruise = thrust_cruise * speed * 1000 / propeller_eff
-    power_max = thrust_max * speed * 1000 / propeller_eff
-    battery_capacity = power_max * flight_time / 3600
-    battery_mass = battery_capacity / 150
-    battery_voltage = 22.2
-    battery_capacity_ah = battery_capacity / battery_voltage
-    battery_capacity_recommended = battery_capacity_ah * 1.2
-    battery_type = "LiPo"
-    battery_info = f"LiPo батарея, {battery_voltage} В, {battery_capacity_ah:.2f} А·ч"
-    rotor_info = "Стандартный электромотор"
-
-    data.update({
-        'takeoff_mass': takeoff_mass,
-        'thrust_cruise': thrust_cruise,
-        'thrust_max': thrust_max,
-        'power_cruise': power_cruise,
-        'power_max': power_max,
-        'battery_mass': battery_mass,
-        'battery_voltage': battery_voltage,
-        'battery_capacity_ah': battery_capacity_ah,
-        'battery_capacity_recommended': battery_capacity_recommended,
-        'battery_type': battery_type,
-        'battery_info': battery_info,
-        'rotor_info': rotor_info
-    })
+    data = context.user_data.get('current_config', {})
+    if not data:
+        await send_message(
+            update, context,
+            "⚠️ Текущая конфигурация не найдена. Начните новый расчёт.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🛠 Новый расчёт", callback_data="restart")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")]
+            ])
+        )
+        return CALCULATE
 
     result_text = f"""
 📊 Результаты расчета:
 
-🔹 Взлетная масса: {takeoff_mass:.2f} кг
-🔹 Тяга: {thrust_cruise:.2f} кгс (крейсер), {thrust_max:.2f} кгс (макс)
-🔹 Мощность: {power_cruise/1000:.2f} кВт (крейсер), {power_max/1000:.2f} кВт (макс)
+🔹 Взлетная масса: {data['takeoff_mass']:.2f} кг
+🔹 Тяга: {data['thrust_cruise']:.2f} кгс (крейсер), {data['thrust_max']:.2f} кгс (макс)
+🔹 Мощность: {data['power_cruise']/1000:.2f} кВт (крейсер), {data['power_max']/1000:.2f} кВт (макс)
 
-🔋 Аккумулятор {battery_type}:
-- Масса: {battery_mass:.2f} кг
-- Напряжение: {battery_voltage} В
-- Емкость: {battery_capacity_ah:.2f} А·ч (рекомендуется {battery_capacity_recommended:.2f} А·ч)
+🔋 Аккумулятор {data['battery_type']}:
+- Масса: {data['battery_mass']:.2f} кг
+- Напряжение: {data['battery_voltage']} В
+- Емкость: {data['battery_capacity_ah']:.2f} А·ч (рекомендуется {data['battery_capacity_recommended']:.2f} А·ч)
 
 ✈️ Параметры полета:
 - Дальность: {data.get('distance', 0):.2f} км
-- Время: {flight_time:.2f} ч
-- Скорость: {speed} км/ч
-- Маневры: {maneuver_time}% времени
+- Время: {data.get('flight_time', 0):.2f} ч
+- Скорость: {data.get('speed', 0)} км/ч
+- Маневры: {data.get('maneuver_time', 0)}% времени
 
 🦾 Комплектация:
-- АКБ: {battery_info}
-- Электромотор: {rotor_info}
+- АКБ: {data['battery_info']}
+- Электромотор: {data['rotor_info']}
     """
 
     keyboard = [
