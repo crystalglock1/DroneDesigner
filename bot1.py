@@ -384,7 +384,8 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             )
             return SHOW_HISTORY
 
-        result_text = f"""📊 Конфигурация: {config_name} ({config['created_at']})
+        result_text = f"""
+📊 Конфигурация: {config_name} ({config['created_at']})
 
 🔹 Взлетная масса: {config['takeoff_mass']:.2f} кг
 🔹 Тяга: {config['thrust_cruise']:.2f} кгс (крейсер), {config['thrust_max']:.2f} кгс (макс)
@@ -396,18 +397,15 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 - Емкость: {config['battery_capacity_ah']:.2f} А·ч (рекомендуется {config['battery_capacity_recommended']} А·ч)
 
 ✈️ Параметры полета:
-- Дальность: {config['distance']:.2f} км
-- Время: {config['flight_time']:.2f} ч
-- Скорость: {config['speed']} км/ч
-- Маневры: {config['maneuver_time']}% времени
+- Дальность: {config.get('distance', 0):.2f} км
+- Время: {config.get('flight_time', 0):.2f} ч
+- Скорость: {config.get('speed', 0)} км/ч
+- Маневры: {config.get('maneuver_time', 0)}% времени
 
-🦠 Комплектация:
-- АКБ:
-{config['battery_info']}
-
-- Электромотор:
-{config['rotor_info']}"""
-        
+🦾 Комплектация:
+- АКБ: {config['battery_info']}
+- Электромотор: {config['rotor_info']}
+        """
         keyboard = [
             [InlineKeyboardButton("⬅ Назад к списку", callback_data="history")],
             [InlineKeyboardButton("🗑 Удалить", callback_data=f"delete_{config_name}")]
@@ -420,7 +418,7 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         logger.info(f"Пользователь {user_id} просмотрел конфигурацию {config_name}")
         return SHOW_CONFIG
-
+        
 async def show_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Обработка действий с конфигурацией"""
     query = update.callback_query
@@ -1411,25 +1409,24 @@ async def handle_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     elif query.data == "history":
         configs = load_configs()
         user_configs = configs.get(str(user_id), {})
-        if not user_configs:
-            await send_message(
-                update, context,
-                "⏳ У вас пока нет сохранённых конфигураций. Создайте свою первую конфигурацию для расчета параметров БПЛА!",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🛠 Создать конфигурацию", callback_data="new_config")],
-                    [InlineKeyboardButton("⬅ Вернуться к расчётам", callback_data="back_to_current")],
-                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")]
-                ])
-            )
-            return WELCOME_STATE
-
-        keyboard = [
-            [InlineKeyboardButton(f"{name} ({data['created_at']})", callback_data=f"config_{name}")]
-            for name, data in user_configs.items()
-        ]
-        keyboard.append([InlineKeyboardButton("⬅ Вернуться к расчётам", callback_data="back_to_current")])
+        keyboard = []
+        if user_configs:
+            keyboard = [
+                [InlineKeyboardButton(f"{name} ({data['created_at']})", callback_data=f"config_{name}")]
+                for name, data in user_configs.items()
+            ]
+        # Всегда добавляем кнопку "Вернуться к расчётам", если есть текущая конфигурация
+        if context.user_data.get('current_config'):
+            keyboard.append([InlineKeyboardButton("⬅ Вернуться к расчётам", callback_data="back_to_current")])
         keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")])
-        await send_message(update, context, "📜 Выберите конфигурацию из списка:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+        text = "📜 Выберите конфигурацию из списка:" if user_configs else \
+               "⏳ У вас пока нет сохранённых конфигураций. Создайте свою первую конфигурацию!"
+        await send_message(
+            update, context,
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
         logger.info(f"Пользователь {user_id} запросил историю конфигураций")
         return SHOW_HISTORY
 
@@ -1577,7 +1574,7 @@ async def handle_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
     logger.debug(f"Добавлен message_id {prompt_msg.message_id} для отображения результатов расчета")
     return CALCULATE
-    
+
     keyboard = [
         [InlineKeyboardButton(f"{name} ({created_at})", callback_data=f"config_{id}")]
         for id, name, created_at in configs
