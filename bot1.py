@@ -1360,6 +1360,29 @@ async def handle_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return WELCOME_STATE
 
+    elif query.data == "history":
+        configs = load_configs()
+        user_configs = configs.get(str(user_id), {})
+        if not user_configs:
+            await send_message(
+                update, context,
+                "⏳ У вас пока нет сохранённых конфигураций. Создайте свою первую конфигурацию для расчета параметров БПЛА!",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🛠 Создать конфигурацию", callback_data="new_config")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")]
+                ])
+            )
+            return WELCOME_STATE
+
+        keyboard = [
+            [InlineKeyboardButton(f"{name} ({data['created_at']})", callback_data=f"config_{name}")]
+            for name, data in user_configs.items()
+        ]
+        keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")])
+        await send_message(update, context, "📜 Выберите конфигурацию из списка:", reply_markup=InlineKeyboardMarkup(keyboard))
+        logger.info(f"Пользователь {user_id} запросил историю конфигураций")
+        return SHOW_HISTORY
+
     elif query.data == "restart":
         context.user_data.clear()
         context.user_data['message_ids'] = [context.user_data.get('welcome_message_id')] if context.user_data.get('welcome_message_id') else []
@@ -1454,7 +1477,7 @@ async def handle_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.debug(f"Добавлен message_id {prompt_msg.message_id} для выбора параметра для изменения")
         return CALCULATE
 
-    # Расчёт параметров БПЛА
+    # Если ни одно из условий не выполнено, возвращаем результаты расчета
     data = context.user_data
     flight_time = data.get('flight_time', 0)
     speed = data.get('speed', 0)
@@ -1519,18 +1542,20 @@ async def handle_changes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """
 
     keyboard = [
-        [InlineKeyboardButton("⬅ Назад к списку", callback_data="history")],
-        [InlineKeyboardButton("🗑 Сохранить конфигурацию", callback_data="save_config")],
-        [InlineKeyboardButton("🔄 Новый расчет", callback_data="restart")]
+        [InlineKeyboardButton("📖 История", callback_data="history")],
+        [InlineKeyboardButton("💾 Сохранить конфигурацию", callback_data="save_config")],
+        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_welcome")],
+        [InlineKeyboardButton("🔄 Изменить параметры", callback_data="change_params")]
     ]
-    await send_message(
+    prompt_msg = await send_message(
         update, context,
         result_text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
+    logger.debug(f"Добавлен message_id {prompt_msg.message_id} для отображения результатов расчета")
     return CALCULATE
-
+    
     keyboard = [
         [InlineKeyboardButton(f"{name} ({created_at})", callback_data=f"config_{id}")]
         for id, name, created_at in configs
