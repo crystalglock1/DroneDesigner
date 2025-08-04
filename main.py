@@ -1,7 +1,6 @@
 import logging
 import json
 import subprocess
-from dotenv import load_dotenv
 import os
 from datetime import datetime, timedelta
 import pandas as pd
@@ -39,9 +38,7 @@ logger = logging.getLogger(__name__)
 ) = range(21)
 
 # Токен бота из переменных окружения
-TOKEN = os.getenv("BOT_TOKEN")
-load_dotenv()
-GIT_TOKEN = os.getenv("GIT_TOKEN")
+TOKEN = "7307737118:AAH963acFly_MjqnXkE2a8OhrfZjlYm1o50"
 CONFIG_FILE = 'configurations.json'
 
 # Стандартная атмосфера (на уровне моря)
