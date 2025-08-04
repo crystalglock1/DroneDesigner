@@ -20,8 +20,6 @@ import re
 import time
 import uuid
 import math
-from pymongo import MongoClient
-from pymongo.errors import ConnectionError
 
 # Настройка логирования
 logging.basicConfig(
@@ -45,11 +43,6 @@ TOKEN = os.getenv("BOT_TOKEN")
 load_dotenv()
 GIT_TOKEN = os.getenv("GIT_TOKEN")
 CONFIG_FILE = 'configurations.json'
-MONGO_URI = os.getenv("MONGO_URI")  # Строка подключения к MongoDB Atlas
-mongo_client = MongoClient(MONGO_URI)
-db = mongo_client["bot_configs"]
-collection = db["users"]
-
 
 # Стандартная атмосфера (на уровне моря)
 STD_ATMOSPHERE = {
@@ -76,35 +69,35 @@ def calculate_air_density(altitude):
     return rho_0 * (1 - L * altitude / T_0) ** exponent if altitude <= 11000 else 0.3639 * math.exp(-g * (altitude - 11000) / (R * 226.32))
 
 def load_configs():
-    """Загрузка конфигураций из MongoDB"""
+    """Загрузка конфигураций из JSON-файла"""
     try:
-        configs = {}
-        for doc in collection.find():
-            user_id = str(doc["user_id"])
-            configs[user_id] = doc.get("configs", {})
-        return configs
-    except ConnectionError as e:
-        logger.error(f"Ошибка подключения к MongoDB: {e}")
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, 'r') as f:
+                return json.load(f)
         return {}
-    except Exception as e:
-        logger.error(f"Ошибка чтения конфигураций из MongoDB: {e}")
+    except json.JSONDecodeError:
+        logger.error("Ошибка чтения configurations.json, возвращается пустой словарь")
         return {}
 
 def save_configs(configs):
-    """Сохранение конфигураций в MongoDB"""
+    """Сохранение конфигураций в JSON-файл"""
     try:
-        for user_id, user_configs in configs.items():
-            collection.update_one(
-                {"user_id": user_id},
-                {"$set": {"configs": user_configs}},
-                upsert=True
-            )
-        logger.info("Конфигурации успешно сохранены в MongoDB")
-    except ConnectionError as e:
-        logger.error(f"Ошибка подключения к MongoDB при сохранении: {e}")
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(configs, f, indent=4)
     except Exception as e:
-        logger.error(f"Ошибка записи конфигураций в MongoDB: {e}")
+        logger.error(f"Ошибка записи в configurations.json: {e}")
 
+def update_repo():
+    """Обновление репозитория GitHub"""
+    try:
+        subprocess.run(['git', 'config', '--global', 'user.email', 'bot@example.com'], check=True)
+        subprocess.run(['git', 'config', '--global', 'user.name', 'Bot'], check=True)
+        subprocess.run(['git', 'add', CONFIG_FILE], check=True)
+        subprocess.run(['git', 'commit', '-m', 'Обновлены конфигурации'], check=True)
+        subprocess.run(['git', 'push', 'origin', 'main'], check=True)
+        logger.info("Конфигурации успешно отправлены в репозиторий")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Ошибка при пушe в репозиторий: {e}")
 
 async def delete_messages(context: ContextTypes.DEFAULT_TYPE, chat_id: int, keep_ids: list = None):
     """Удаление всех сообщений, кроме указанных в keep_ids"""
